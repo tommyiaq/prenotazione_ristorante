@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  />
   <title>WebLLM Tiny Chat (Client‑Side, No Token)</title>
   <style>
     :root { color-scheme: light dark; }
@@ -95,10 +98,12 @@
   </div>
 
   <!-- ✅ Correctly load WebLLM from CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/dist/webllm.min.js"
-          defer
-          onload="window.__webllm_loaded = true;"
-          onerror="window.__webllm_error = 'Failed to load WebLLM CDN script';"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/dist/webllm.min.js"
+    defer
+    onload="window.__webllm_loaded = true;"
+    onerror="window.__webllm_error = 'Failed to load WebLLM CDN script';"
+  ></script>
 
   <script>
     // -------------------- UI helpers --------------------
@@ -245,8 +250,9 @@
       if (t) handleSend(t);
     });
 
-    // Kick off AFTER the WebLLM script has (defer) loaded
+    // Kick off AFTER the WebLLM script (defer) has loaded
     window.addEventListener('DOMContentLoaded', initModel);
   </script>
 </body>
 </html>
+``
