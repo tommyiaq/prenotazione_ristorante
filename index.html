@@ -49,8 +49,7 @@
   }
 </style>
 
-<!-- WebLLM CDN -->
-<script src="https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/dist/webllm.min.js"></script>
+<!-- WebLLM will be imported by script.js as an ES module -->
 </head>
 <body>
 
@@ -61,6 +60,10 @@
   dominio. Scarica il modello e inseriscilo in una cartella "model" nello
   stesso repository, quindi modifica MODEL_URL in script.js per puntare a
   "./model/".
+  
+  Inoltre, WebLLM richiede il file wasm compilato (es. <code>model.wasm</code>)
+  identificato da `model_lib` nella configurazione. Assicurati che questo file
+  sia disponibile nello stesso percorso e servito con le stesse regole CORS.
 -->
 
 <div id="input-area">
@@ -68,7 +71,7 @@
   <button onclick="sendMessage()">Invia</button>
 </div>
 
-<!-- script esterno -->
-<script src="script.js"></script>
+<!-- module script esterno -->
+<script type="module" src="script.js"></script>
 </body>
 </html>
