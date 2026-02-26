@@ -6,18 +6,15 @@
   <title>WebLLM Tiny Chat (Client‑Side, No Token)</title>
   <style>
     :root { color-scheme: light dark; }
-
     body {
       margin: 0; padding: 16px; font-family: system-ui, Arial, sans-serif;
       background: Canvas; color: CanvasText;
       display: grid; grid-template-rows: auto 1fr auto; height: 100dvh; gap: 12px;
     }
-
     #chat {
       border: 1px solid color-mix(in oklab, CanvasText 20%, Canvas 80%);
       border-radius: 12px; padding: 12px; overflow-y: auto;
     }
-
     .msg { margin-bottom: 10px; }
     .role { font-weight: bold; }
     .bubble {
@@ -25,19 +22,16 @@
       padding: 8px 10px; border-radius: 10px;
       white-space: pre-wrap; max-width: 70ch;
     }
-
     form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     input { padding: 10px; border-radius: 10px; border: 1px solid #ccc; }
     button { padding: 10px 14px; border-radius: 10px; border: none; background: #2f6fff; color: white; }
     button:disabled { opacity: .6; }
-
     #loading-overlay {
       position: fixed; inset: 0; display: flex; flex-direction: column;
       justify-content: center; align-items: center;
       background: rgba(0,0,0,0.15); backdrop-filter: blur(4px);
       z-index: 100;
     }
-
     .spinner {
       width: 38px; height: 38px; border-radius: 50%;
       border: 4px solid color-mix(in oklab, CanvasText 50%, Canvas 50%);
@@ -45,9 +39,7 @@
       animation: spin 1s linear infinite;
       margin-bottom: 12px;
     }
-
     @keyframes spin { to { transform: rotate(360deg); } }
-
     #error-box {
       display: none; background: #ffb3b3; padding: 10px;
       border-radius: 8px; white-space: pre-wrap; max-width: 80%;
@@ -72,8 +64,10 @@
     <button id="retry-btn" style="display:none;">Retry</button>
   </div>
 
-  <!-- Correct, working script import -->
+  <!-- Official ESM import as per docs -->
   <script type="module">
+    // Docs recommend ESM from CDN: https://esm.run/@mlc-ai/web-llm
+    // https://webllm.mlc.ai/docs/user/get_started.html
     import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 
     const chatEl = document.getElementById("chat");
@@ -85,7 +79,16 @@
     const errBox = document.getElementById("error-box");
     const retry = document.getElementById("retry-btn");
 
+    // Weights (MLC format)
     const MODEL = "https://huggingface.co/mlc-ai/TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC/resolve/main/?download=true";
+
+    // WASM runtime (model_lib) – required when using custom URLs
+    // Pattern from docs: modelLibURLPrefix + modelVersion + "/<model>-webgpu.wasm"
+    // https://llm.mlc.ai/docs/deploy/webllm.html
+    const MODEL_LIB =
+      webllm.modelLibURLPrefix +
+      webllm.modelVersion +
+      "/TinyLlama-1.1B-Chat-v1.0-q4f16_1-ctx4k_cs1k-webgpu.wasm";
 
     function say(role, text) {
       const div = document.createElement("div");
@@ -100,16 +103,18 @@
     async function init() {
       try {
         stat.textContent = "Checking WebGPU…";
-
         if (!("gpu" in navigator)) {
           throw new Error("WebGPU not available. Use Chrome/Edge.");
         }
-
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("WebGPU adapter unavailable.");
 
         stat.textContent = "Loading model…";
 
+        // Use CreateMLCEngine with an appConfig that binds our URLs
+        // Basic Usage & API Reference: chat.completions + progress callbacks
+        // https://webllm.mlc.ai/docs/user/basic_usage.html
+        // https://webllm.mlc.ai/docs/user/api_reference.html
         engine = await webllm.CreateMLCEngine(
           "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC",
           {
@@ -118,12 +123,14 @@
                 {
                   model: MODEL,
                   model_id: "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC",
+                  model_lib: MODEL_LIB
                 }
-              ]
+              ],
+              useIndexedDBCache: true
             },
             initProgressCallback: (p) => {
-              const pct = p.progress ? ` ${Math.round(p.progress * 100)}%` : "";
-              stat.textContent = p.text + pct;
+              const pct = typeof p.progress === "number" ? ` ${Math.round(p.progress * 100)}%` : "";
+              stat.textContent = (p.text || "Loading…") + pct;
             }
           }
         );
