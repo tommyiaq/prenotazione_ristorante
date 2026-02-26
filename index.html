@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WebLLM Ultra‑Light Chat</title>
-
+  <title>WebLLM Tiny Chat (Client‑Side, No Token)</title>
   <style>
     :root { color-scheme: light dark; }
 
@@ -14,46 +13,23 @@
       display: grid; grid-template-rows: auto 1fr auto; height: 100dvh; gap: 12px;
     }
 
-    h1 { font-size: 1.2rem; margin: 0 0 4px 0; }
+    h1 { font-size: 1.1rem; margin: 0 0 4px 0; }
+    #env { font-size: .9rem; opacity: .85; margin-bottom: 4px; }
 
-    /* Loading overlay */
-    #loading-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.15);
-      backdrop-filter: blur(4px);
-      display: flex; flex-direction: column;
-      justify-content: center; align-items: center;
-      font-size: 1rem;
-      z-index: 200;
-    }
-
-    .spinner {
-      width: 38px; height: 38px;
-      border: 4px solid color-mix(in oklab, CanvasText 40%, Canvas 60%);
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin-bottom: 12px;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
+    /* Chat area */
     #chat {
       border: 1px solid color-mix(in oklab, CanvasText 20%, Canvas 80%);
-      border-radius: 12px; padding: 12px;
-      overflow-y: auto; background: Canvas;
+      border-radius: 12px; padding: 12px; overflow-y: auto; background: Canvas;
     }
-
     .msg { margin: 0 0 10px }
-    .role  { font-weight: 700; font-size: .9rem; opacity: .9 }
+    .role { font-weight: 700; opacity: .9; }
     .bubble {
       display: inline-block; padding: 8px 10px; border-radius: 10px;
       background: color-mix(in oklab, CanvasText 10%, Canvas 90%);
-      white-space: pre-wrap; max-width: min(70ch, 100%);
+      max-width: min(70ch, 100%); white-space: pre-wrap;
     }
 
+    /* Input */
     form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     input[type="text"] {
       padding: 10px; border-radius: 10px; border: 1px solid color-mix(in oklab, CanvasText 15%, Canvas 85%);
@@ -65,13 +41,33 @@
     }
     button:disabled { opacity: .6; cursor: not-allowed; }
 
+    /* Loading overlay */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.15); backdrop-filter: blur(4px);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 200; text-align: center; padding: 16px;
+    }
+    .spinner {
+      width: 38px; height: 38px; border-radius: 50%;
+      border: 4px solid color-mix(in oklab, CanvasText 50%, Canvas 50%);
+      border-top-color: transparent; animation: spin 1s linear infinite; margin: 10px auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #error-box {
+      margin-top: 10px; padding: 10px; border-radius: 8px;
+      background: color-mix(in oklab, #d33 20%, Canvas 80%);
+      color: CanvasText; display: none; text-align: left; max-width: 680px;
+      white-space: pre-wrap;
+    }
+    #hint { font-size: .9rem; opacity: .85; margin-top: 8px; max-width: 760px; }
   </style>
 </head>
 
 <body>
-
   <header>
-    <h1>WebLLM Ultra‑Light Chatbot</h1>
+    <h1>WebLLM Tiny Chatbot</h1>
+    <div id="env"></div>
   </header>
 
   <main id="chat" aria-live="polite"></main>
@@ -81,109 +77,176 @@
       <input id="user-input" type="text" placeholder="Type a message…" autocomplete="off" disabled />
       <button id="send-btn" type="submit" disabled>Send</button>
     </form>
+    <div id="hint">
+      Tip: first load downloads model shards; subsequent loads are faster.  
+      Open from your public GitHub Pages URL (e.g., <b>https://&lt;username&gt;.github.io/&lt;repo&gt;/</b>)
+      — not Codespaces or github.dev preview.
+    </div>
   </footer>
 
   <!-- Loading overlay -->
-  <div id="loading-overlay">
+  <div id="loading-overlay" aria-busy="true" aria-live="polite">
     <div class="spinner"></div>
-    <div id="loading-text">Loading model… please wait</div>
+    <div id="loading-text">Loading WebLLM script…</div>
+    <div id="error-box"></div>
+    <div style="margin-top:10px;">
+      <button id="retry-btn" style="display:none;">Retry</button>
+    </div>
   </div>
 
-  <!-- WebLLM CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/dist/webllm.min.js"></script>
+  <!-- ✅ Correctly load WebLLM from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/dist/webllm.min.js"
+          defer
+          onload="window.__webllm_loaded = true;"
+          onerror="window.__webllm_error = 'Failed to load WebLLM CDN script';"></script>
 
   <script>
+    // -------------------- UI helpers --------------------
     const chatEl   = document.getElementById('chat');
     const formEl   = document.getElementById('chat-form');
     const inputEl  = document.getElementById('user-input');
     const sendBtn  = document.getElementById('send-btn');
-    const loadingOverlay = document.getElementById('loading-overlay');
-    const loadingText    = document.getElementById('loading-text');
-
-    let llm = null;
+    const overlay  = document.getElementById('loading-overlay');
+    const loadingText = document.getElementById('loading-text');
+    const errorBox = document.getElementById('error-box');
+    const retryBtn = document.getElementById('retry-btn');
+    const envEl    = document.getElementById('env');
 
     function appendMessage(role, text) {
       const wrap = document.createElement('div');
-      wrap.className = `msg ${role}`;
-
-      const roleDiv = document.createElement('div');
-      roleDiv.className = 'role';
-      roleDiv.textContent = role === 'user' ? 'You' : 'AI';
-
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble';
-      bubble.textContent = text;
-
-      wrap.appendChild(roleDiv);
-      wrap.appendChild(bubble);
+      wrap.className = 'msg';
+      wrap.innerHTML = `<div class="role">${role}</div><div class="bubble">${text}</div>`;
       chatEl.appendChild(wrap);
-
       chatEl.scrollTop = chatEl.scrollHeight;
     }
 
-    async function initModel() {
-      try {
-        loadingText.textContent = "Initializing WebLLM…";
-
-        // SUPER-LIGHT MODEL
-        const modelURL =
-          "https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/";
-
-        llm = await webllm.createLLM({
-          model_url: modelURL,
-          on_progress: (p) => {
-            loadingText.textContent = "Loading model… " + Math.round(p * 100) + "%";
-          }
-        });
-
-        loadingText.textContent = "Model ready!";
-        setTimeout(() => loadingOverlay.style.display = "none", 400);
-
-        inputEl.disabled = false;
-        sendBtn.disabled = false;
-        inputEl.focus();
-
-      } catch (err) {
-        loadingText.textContent = "Error loading model. Check WebGPU or reload.";
-        console.error(err);
-      }
+    function setLoading(text) {
+      overlay.style.display = 'flex';
+      errorBox.style.display = 'none';
+      loadingText.textContent = text;
+      retryBtn.style.display = 'none';
     }
 
-    async function handleSend(text) {
-      inputEl.value = "";
-      inputEl.disabled = true;
-      sendBtn.disabled = true;
+    function showError(msg) {
+      overlay.style.display = 'flex';
+      errorBox.textContent = msg;
+      errorBox.style.display = 'block';
+      retryBtn.style.display = 'inline-block';
+    }
 
-      appendMessage("user", text);
-
-      try {
-        const res = await llm.chat.completions.create({
-          messages: [{ role: "user", content: text }]
-        });
-
-        const reply = res?.choices?.[0]?.message?.content ?? "(no response)";
-        appendMessage("ai", reply);
-
-      } catch (err) {
-        console.error(err);
-        appendMessage("ai", "Error while generating response.");
-      }
-
+    function readyUI() {
+      overlay.style.display = 'none';
       inputEl.disabled = false;
       sendBtn.disabled = false;
       inputEl.focus();
     }
 
-    formEl.addEventListener("submit", (e) => {
+    // -------------------- Environment info --------------------
+    (function reportEnv(){
+      const originOK = location.protocol === 'https:' && !location.hostname.endsWith('.app.github.dev');
+      const parts = [
+        `Origin: ${location.origin}`,
+        `HTTPS: ${location.protocol === 'https:' ? 'yes' : 'no'}`,
+        `WebGPU API: ${'gpu' in navigator ? 'present' : 'missing'}`,
+        `Cross‑origin isolated: ${self.crossOriginIsolated ? 'yes' : 'no'}`,
+        `Testing env: ${originOK ? 'Looks good ✅' : 'Use GitHub Pages public URL ⚠️'}`
+      ];
+      envEl.textContent = parts.join(' · ');
+    })();
+
+    // -------------------- Model init --------------------
+    let llm = null;
+    const MODEL_URL =
+      "https://huggingface.co/mlc-ai/TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC/resolve/main/?download=true";
+
+    async function initModel() {
+      try {
+        // Ensure the WebLLM script actually loaded
+        if (!window.__webllm_loaded || typeof window.webllm === 'undefined') {
+          const cdnErr = window.__webllm_error ? `\nCDN error: ${window.__webllm_error}` : '';
+          throw new Error("WebLLM script not loaded — check the <script src> tag and network." + cdnErr);
+        }
+
+        setLoading("Checking WebGPU…");
+
+        if (!('gpu' in navigator)) {
+          throw new Error("WebGPU API not found. Use Chrome/Edge 121+ on desktop.");
+        }
+
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+          throw new Error("WebGPU adapter unavailable (sandboxed preview or unsupported GPU).");
+        }
+
+        setLoading("Initializing model…");
+
+        llm = await webllm.createLLM({
+          model_url: MODEL_URL,
+          on_progress: (p) => {
+            const pct = Math.round((p || 0) * 100);
+            loadingText.textContent = `Downloading model… ${pct}%`;
+          }
+        });
+
+        setLoading("Warming up…");
+        await llm.chat.completions.create({
+          messages: [{ role: "user", content: "Say 'ready'." }],
+          max_tokens: 4
+        });
+
+        readyUI();
+
+      } catch (err) {
+        console.error("[WebLLM init error]", err);
+        showError(
+          "Model initialization failed:\n\n" +
+          (err?.message || String(err)) +
+          "\n\nChecklist:\n" +
+          "• Open the public GitHub Pages URL (not Codespaces preview)\n" +
+          "• Use Chrome/Edge on desktop with WebGPU enabled\n" +
+          "• Reload the page to retry download\n"
+        );
+      }
+    }
+
+    retryBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      const text = inputEl.value.trim();
-      if (!text) return;
-      handleSend(text);
+      setLoading("Retrying…");
+      initModel();
     });
 
-    // Start model on page load
-    initModel();
-  </script>
+    // -------------------- Chat handling --------------------
+    async function handleSend(text) {
+      inputEl.value = "";
+      inputEl.disabled = true;
+      sendBtn.disabled = true;
 
+      appendMessage("You", text);
+
+      try {
+        const res = await llm.chat.completions.create({
+          messages: [{ role: "user", content: text }]
+        });
+        const reply = res?.choices?.[0]?.message?.content ?? "(no response)";
+        appendMessage("AI", reply);
+      } catch (err) {
+        console.error("[WebLLM chat error]", err);
+        appendMessage("AI", "An error occurred while generating a reply.");
+      } finally {
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    }
+
+    formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const t = inputEl.value.trim();
+      if (t) handleSend(t);
+    });
+
+    // Kick off AFTER the WebLLM script has (defer) loaded
+    window.addEventListener('DOMContentLoaded', initModel);
+  </script>
 </body>
 </html>
