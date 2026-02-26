@@ -55,6 +55,13 @@
 <body>
 
 <div id="chat-container"></div>
+<!--
+  Nota: per motivi di CORS i modelli scaricati da HuggingFace non vengono
+  caricati correttamente quando la pagina è ospitata su github.io o un altro
+  dominio. Scarica il modello e inseriscilo in una cartella "model" nello
+  stesso repository, quindi modifica MODEL_URL in script.js per puntare a
+  "./model/".
+-->
 
 <div id="input-area">
   <input type="text" id="user-input" placeholder="Scrivi un messaggio..." />
