@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WebLLM Tiny Chat (Client-side)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebLLM Tiny Chat</title>
   <style>
     :root { color-scheme: light dark; }
     body {
-      margin:0; padding:16px; font-family:system-ui,Arial;
+      margin:0; padding:16px; font-family:system-ui, Arial;
       display:grid; grid-template-rows:auto 1fr auto; height:100dvh; gap:12px;
       background:Canvas; color:CanvasText;
     }
@@ -16,156 +16,130 @@
       border-radius:12px; padding:12px; overflow-y:auto;
     }
     .msg{margin:0 0 10px;}
-    .role{font-weight:700; opacity:.9;}
+    .role{font-weight:700;}
     .bubble{
       display:inline-block; padding:8px 10px; border-radius:10px;
       background:color-mix(in oklab, CanvasText 10%, Canvas 90%);
-      max-width:min(70ch,100%); white-space:pre-wrap;
+      white-space:pre-wrap; max-width:70ch;
     }
     form{display:grid; grid-template-columns:1fr auto; gap:8px;}
     input{padding:10px; border-radius:10px; border:1px solid #ccc;}
-    button{padding:10px 14px; border-radius:10px; border:none; background:#2f6fff; color:white;}
+    button{
+      padding:10px 14px; border-radius:10px; border:none;
+      background:#2f6fff; color:white; font-weight:600;
+    }
     button:disabled{opacity:.6;}
 
-    #loading-overlay{
-      position:fixed; inset:0; display:flex; flex-direction:column;
+    #overlay{
+      position:fixed; inset:0; background:rgba(0,0,0,.15);
+      backdrop-filter:blur(4px);
+      display:flex; flex-direction:column;
       justify-content:center; align-items:center;
-      background:rgba(0,0,0,0.15); backdrop-filter:blur(4px);
-      z-index:200; text-align:center;
+      z-index:100;
     }
     .spinner{
       width:38px; height:38px; border-radius:50%;
-      border:4px solid color-mix(in oklab, CanvasText 40%, Canvas 60%);
-      border-top-color:transparent; animation:spin 1s linear infinite;
-      margin-bottom:12px;
+      border:4px solid color-mix(in oklab, CanvasText 50%, Canvas 50%);
+      border-top-color:transparent;
+      animation:spin 1s linear infinite; margin-bottom:12px;
     }
     @keyframes spin{to{transform:rotate(360deg);}}
-    #error-box{
-      display:none; margin-top:10px; padding:10px;
-      background:color-mix(in oklab, #d33 20%, Canvas 80%);
-      border-radius:8px; white-space:pre-wrap; max-width:700px;
-    }
+    #err{display:none; white-space:pre-wrap; padding:10px;
+      background:#ffb3b3; border-radius:8px; max-width:80%; }
   </style>
 </head>
 
 <body>
 
-  <h2>Tiny WebLLM Chat</h2>
+  <h2>WebLLM Tiny Chatbot</h2>
   <div id="chat"></div>
 
   <form id="chat-form">
-    <input id="user-input" type="text" placeholder="Type…" disabled>
-    <button id="send-btn" disabled>Send</button>
+    <input id="user" placeholder="Type…" disabled />
+    <button id="send" disabled>Send</button>
   </form>
 
-  <div id="loading-overlay">
+  <div id="overlay">
     <div class="spinner"></div>
-    <div id="loading-text">Loading WebLLM…</div>
-    <div id="error-box"></div>
-    <button id="retry-btn" style="display:none;">Retry</button>
+    <div id="stat">Loading WebLLM…</div>
+    <div id="err"></div>
+    <button id="retry" style="display:none;">Retry</button>
   </div>
 
-  <!-- ✅ FIXED: Load WebLLM from UNPKG instead of jsDelivr -->
-  https://unpkg.com/@mlc-ai/web-llm/dist/webllm.min.js</script>
+  <!-- ✅ NEW OFFICIAL CDN -->
+  https://mlc.ai/web-llm/releases/v0.2.0/webllm.min.js</script>
 
   <script>
-    const chatEl=document.getElementById("chat");
-    const inputEl=document.getElementById("user-input");
-    const sendBtn=document.getElementById("send-btn");
-    const formEl=document.getElementById("chat-form");
-    const overlay=document.getElementById("loading-overlay");
-    const loadingText=document.getElementById("loading-text");
-    const errorBox=document.getElementById("error-box");
-    const retryBtn=document.getElementById("retry-btn");
+    const chat=document.getElementById("chat");
+    const inp=document.getElementById("user");
+    const send=document.getElementById("send");
+    const form=document.getElementById("chat-form");
+    const overlay=document.getElementById("overlay");
+    const stat=document.getElementById("stat");
+    const err=document.getElementById("err");
+    const retry=document.getElementById("retry");
 
-    let llm=null;
-    const MODEL_URL="https://huggingface.co/mlc-ai/TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC/resolve/main/?download=true";
-
-    function appendMessage(role,text){
-      const wrap=document.createElement("div");
-      wrap.className="msg";
-      wrap.innerHTML=`<div class="role">${role}</div><div class="bubble">${text}</div>`;
-      chatEl.appendChild(wrap);
-      chatEl.scrollTop=chatEl.scrollHeight;
+    function say(role, text){
+      const d=document.createElement("div");
+      d.className="msg";
+      d.innerHTML=`<div class="role">${role}</div><div class="bubble">${text}</div>`;
+      chat.appendChild(d);
+      chat.scrollTop=chat.scrollHeight;
     }
 
-    function showError(msg){
-      errorBox.textContent=msg;
-      errorBox.style.display="block";
-      retryBtn.style.display="inline-block";
-    }
+    const MODEL="https://huggingface.co/mlc-ai/TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC/resolve/main/?download=true";
 
-    function readyUI(){
-      overlay.style.display="none";
-      inputEl.disabled=false;
-      sendBtn.disabled=false;
-      inputEl.focus();
-    }
-
-    async function initModel(){
+    async function init(){
       try{
-        if(typeof window.webllm==="undefined"){
-          throw new Error("WebLLM script did not load.");
-        }
-        loadingText.textContent="Checking WebGPU…";
-        if(!("gpu" in navigator)){
-          throw new Error("WebGPU not available. Use Chrome/Edge 121+.");
-        }
+        if(typeof webllm==="undefined") throw new Error("WebLLM script did not load.");
+
+        stat.textContent="Checking WebGPU…";
+        if(!("gpu" in navigator)) throw new Error("WebGPU not available.");
 
         const adapter=await navigator.gpu.requestAdapter();
-        if(!adapter){
-          throw new Error("WebGPU adapter not available.");
-        }
+        if(!adapter) throw new Error("WebGPU adapter unavailable.");
 
-        loadingText.textContent="Initializing model…";
+        stat.textContent="Loading model…";
 
-        llm=await webllm.createLLM({
-          model_url:MODEL_URL,
+        const llm=await webllm.createLLM({
+          model_url:MODEL,
           on_progress:p=>{
-            loadingText.textContent=`Downloading model… ${Math.round(p*100)}%`;
+            stat.textContent=`Downloading model… ${Math.round(p*100)}%`;
           }
         });
 
-        loadingText.textContent="Warming up…";
+        stat.textContent="Warming up…";
         await llm.chat.completions.create({
-          messages:[{role:"user",content:"Say 'ready'."}],
+          messages:[{role:"user", content:"ready?"}],
           max_tokens:4
         });
 
-        readyUI();
+        overlay.style.display="none";
+        inp.disabled=false; send.disabled=false;
 
-      }catch(err){
-        console.error(err);
-        showError("Initialization failed:\n"+err.message);
+        form.onsubmit=e=>{
+          e.preventDefault();
+          const t=inp.value.trim();
+          if(!t) return;
+          say("You",t);
+          inp.value="";
+          llm.chat.completions.create({messages:[{role:"user",content:t}]})
+            .then(r=>say("AI",r.choices[0].message.content))
+            .catch(e=>say("AI","Error: "+e.message));
+        };
+
+      }catch(e){
+        console.error(e);
+        err.style.display="block";
+        err.textContent="Initialization failed:\n"+e.message;
+        retry.style.display="inline-block";
       }
     }
 
-    retryBtn.onclick=()=>{ errorBox.style.display="none"; retryBtn.style.display="none"; initModel(); };
+    retry.onclick=()=>{ err.style.display="none"; retry.style.display="none"; init(); };
 
-    formEl.addEventListener("submit",e=>{
-      e.preventDefault();
-      const t=inputEl.value.trim();
-      if(!t) return;
-      inputEl.value="";
-      appendMessage("You",t);
-      inputEl.disabled=true;
-      sendBtn.disabled=true;
-
-      llm.chat.completions.create({messages:[{role:"user",content:t}]})
-        .then(r=>{
-          appendMessage("AI", r.choices[0].message.content);
-        })
-        .catch(err=>{
-          appendMessage("AI","Error: "+err.message);
-        })
-        .finally(()=>{
-          inputEl.disabled=false;
-          sendBtn.disabled=false;
-          inputEl.focus();
-        });
-    });
-
-    window.addEventListener("DOMContentLoaded",initModel);
+    window.addEventListener("DOMContentLoaded",init);
   </script>
+
 </body>
 </html>
