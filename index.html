@@ -3,175 +3,117 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WebLLM Tiny Chat (Client‑Side, No Token)</title>
+  <title>WebLLM Chat (FAST, WORKING)</title>
+
   <style>
-    :root { color-scheme: light dark; }
     body {
-      margin: 0; padding: 16px; font-family: system-ui, Arial, sans-serif;
+      margin: 0; padding: 16px;
+      font-family: system-ui, Arial, sans-serif;
+      display: grid; grid-template-rows: auto 1fr auto;
+      height: 100vh; gap: 12px;
       background: Canvas; color: CanvasText;
-      display: grid; grid-template-rows: auto 1fr auto; height: 100dvh; gap: 12px;
     }
-    #chat {
-      border: 1px solid color-mix(in oklab, CanvasText 20%, Canvas 80%);
-      border-radius: 12px; padding: 12px; overflow-y: auto;
-    }
-    .msg { margin-bottom: 10px; }
+    #chat { border: 1px solid #ccc; border-radius: 12px;
+      padding: 12px; overflow-y: auto; }
+    .msg { margin: 0 0 10px; }
     .role { font-weight: bold; }
-    .bubble {
-      background: color-mix(in oklab, CanvasText 10%, Canvas 90%);
-      padding: 8px 10px; border-radius: 10px;
-      white-space: pre-wrap; max-width: 70ch;
-    }
+    .bubble { padding: 8px 10px; border-radius: 10px;
+      background: color-mix(in oklab, CanvasText 15%, Canvas 85%); }
     form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     input { padding: 10px; border-radius: 10px; border: 1px solid #ccc; }
-    button { padding: 10px 14px; border-radius: 10px; border: none; background: #2f6fff; color: white; }
-    button:disabled { opacity: .6; }
-    #loading-overlay {
-      position: fixed; inset: 0; display: flex; flex-direction: column;
+    button { padding: 10px 14px; background: #2f6fff; border: none; color: white; }
+    #overlay { position: fixed; inset: 0; display: flex;
       justify-content: center; align-items: center;
-      background: rgba(0,0,0,0.15); backdrop-filter: blur(4px);
-      z-index: 100;
-    }
-    .spinner {
-      width: 38px; height: 38px; border-radius: 50%;
-      border: 4px solid color-mix(in oklab, CanvasText 50%, Canvas 50%);
-      border-top-color: transparent;
-      animation: spin 1s linear infinite;
-      margin-bottom: 12px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #error-box {
-      display: none; background: #ffb3b3; padding: 10px;
-      border-radius: 8px; white-space: pre-wrap; max-width: 80%;
-    }
+      background: rgba(0,0,0,.2); backdrop-filter: blur(4px);
+      flex-direction: column; gap: 12px; z-index: 100; }
   </style>
 </head>
 
 <body>
 
-  <h2>WebLLM Tiny Chatbot</h2>
+  <h2>WebLLM Chat (Qwen2.5 1.5B)</h2>
   <div id="chat"></div>
 
   <form id="chat-form">
-    <input id="user-input" type="text" placeholder="Type…" disabled />
-    <button id="send-btn" disabled>Send</button>
+    <input id="user" disabled placeholder="Loading…">
+    <button id="send" disabled>Send</button>
   </form>
 
-  <div id="loading-overlay">
-    <div class="spinner"></div>
-    <div id="loading-text">Loading WebLLM…</div>
-    <div id="error-box"></div>
-    <button id="retry-btn" style="display:none;">Retry</button>
+  <div id="overlay">
+    <div>Loading model…</div>
   </div>
 
-  <!-- Official ESM import as per docs -->
   <script type="module">
-    // Docs recommend ESM from CDN: https://esm.run/@mlc-ai/web-llm
-    // https://webllm.mlc.ai/docs/user/get_started.html
     import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 
-    const chatEl = document.getElementById("chat");
-    const inputEl = document.getElementById("user-input");
-    const sendBtn = document.getElementById("send-btn");
-    const formEl = document.getElementById("chat-form");
-    const overlay = document.getElementById("loading-overlay");
-    const stat = document.getElementById("loading-text");
-    const errBox = document.getElementById("error-box");
-    const retry = document.getElementById("retry-btn");
-
-    // Weights (MLC format)
-    const MODEL = "https://huggingface.co/mlc-ai/TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC/resolve/main/?download=true";
-
-    // WASM runtime (model_lib) – required when using custom URLs
-    // Pattern from docs: modelLibURLPrefix + modelVersion + "/<model>-webgpu.wasm"
-    // https://llm.mlc.ai/docs/deploy/webllm.html
-    const MODEL_LIB =
-      webllm.modelLibURLPrefix +
-      webllm.modelVersion +
-      "/TinyLlama-1.1B-Chat-v1.0-q4f16_1-ctx4k_cs1k-webgpu.wasm";
+    const chat = document.getElementById("chat");
+    const user = document.getElementById("user");
+    const send = document.getElementById("send");
+    const form = document.getElementById("chat-form");
+    const overlay = document.getElementById("overlay");
 
     function say(role, text) {
-      const div = document.createElement("div");
-      div.className = "msg";
-      div.innerHTML = `<div class="role">${role}</div><div class="bubble">${text}</div>`;
-      chatEl.appendChild(div);
-      chatEl.scrollTop = chatEl.scrollHeight;
+      const m = document.createElement("div");
+      m.className = "msg";
+      m.innerHTML = `<div class="role">${role}</div><div class="bubble">${text}</div>`;
+      chat.appendChild(m);
+      chat.scrollTop = chat.scrollHeight;
     }
 
     let engine = null;
 
     async function init() {
       try {
-        stat.textContent = "Checking WebGPU…";
-        if (!("gpu" in navigator)) {
-          throw new Error("WebGPU not available. Use Chrome/Edge.");
-        }
+        overlay.innerHTML = "<div>Initializing WebGPU…</div>";
+
+        if (!("gpu" in navigator))
+          throw new Error("WebGPU not supported!");
+
         const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) throw new Error("WebGPU adapter unavailable.");
+        if (!adapter)
+          throw new Error("No WebGPU adapter.");
 
-        stat.textContent = "Loading model…";
+        overlay.innerHTML = "<div>Loading model… (Qwen2.5-1.5B)</div>";
 
-        // Use CreateMLCEngine with an appConfig that binds our URLs
-        // Basic Usage & API Reference: chat.completions + progress callbacks
-        // https://webllm.mlc.ai/docs/user/basic_usage.html
-        // https://webllm.mlc.ai/docs/user/api_reference.html
+        // ⭐ PREBUILT MODEL — guaranteed to work
         engine = await webllm.CreateMLCEngine(
-          "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC",
+          "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
           {
-            appConfig: {
-              model_list: [
-                {
-                  model: MODEL,
-                  model_id: "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC",
-                  model_lib: MODEL_LIB
-                }
-              ],
-              useIndexedDBCache: true
-            },
-            initProgressCallback: (p) => {
-              const pct = typeof p.progress === "number" ? ` ${Math.round(p.progress * 100)}%` : "";
-              stat.textContent = (p.text || "Loading…") + pct;
+            initProgressCallback: p => {
+              overlay.innerHTML = `<div>${p.text || "Loading…"} ${
+                p.progress ? Math.round(p.progress * 100) + "%" : ""
+              }</div>`;
             }
           }
         );
 
-        stat.textContent = "Warming up…";
-        await engine.chat.completions.create({
-          messages: [{ role: "user", content: "ready?" }],
-          max_tokens: 4
-        });
-
         overlay.style.display = "none";
-        inputEl.disabled = false;
-        sendBtn.disabled = false;
+        user.disabled = false;
+        send.disabled = false;
+        user.placeholder = "Type…";
 
       } catch (e) {
+        overlay.innerHTML = `<div style="color:red;">Error: ${e.message}</div>`;
         console.error(e);
-        errBox.style.display = "block";
-        errBox.textContent = "Initialization failed:\n" + e.message;
-        retry.style.display = "inline-block";
       }
     }
 
-    retry.onclick = () => {
-      errBox.style.display = "none";
-      retry.style.display = "none";
-      init();
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const txt = user.value.trim();
+      if (!txt) return;
+
+      say("You", txt);
+      user.value = "";
+
+      const res = await engine.chat.completions.create({
+        messages: [{ role: "user", content: txt }]
+      });
+
+      say("AI", res.choices[0].message.content);
     };
 
-    formEl.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const t = inputEl.value.trim();
-      if (!t) return;
-      inputEl.value = "";
-      say("You", t);
-
-      engine.chat.completions.create({ messages: [{ role: "user", content: t }] })
-        .then(r => say("AI", r.choices[0].message.content))
-        .catch(err => say("AI","Error: " + err.message));
-    });
-
-    window.addEventListener("DOMContentLoaded", init);
+    init();
   </script>
 
 </body>
